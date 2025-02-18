@@ -1,45 +1,58 @@
-# Устанавливаем Execution Policy, если нужно
-Set-ExecutionPolicy Unrestricted -Force
+# Включаем службу Windows Remote Management
+Enable-PSRemoting -Force
+Set-Service -Name WinRM -StartupType Automatic
+Start-Service -Name WinRM
 
-# Запрашиваем количество пользователей
-$UserCount = Read-Host "Введите количество пользователей для создания"
+# Устанавливаем роли для RDS
+Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
+Restart-Computer -Force
 
-# Функция генерации случайного пароля (10 символов: верхний, нижний регистр + цифры)
+# Ждём загрузки системы перед продолжением
+Start-Sleep -Seconds 60
+
+# Настроим лицензирование через реестр
+Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
+Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
+
+# Разрешаем множественные сессии под одной учётной записью
+Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
+
+# Автоматически активируем сервер лицензий
+$agreementNumbers = @("6565792", "5296992", "3325596", "4965437", "4526017")
+$selectedNumber = $agreementNumbers | Get-Random
+
+Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/ActivateServer /CompanyName:Test /Country:AF /AgreementNumber:$selectedNumber /LicenseType:2 /LicenseCount:16 /ProductVersion:WindowsServer2022" -Wait
+
+# Запрос на количество пользователей
+$userCount = Read-Host "Введите количество пользователей для создания"
+
+# Функция для генерации пароля
 function Generate-Password {
     $length = 10
-    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    $password = -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
+    $lowercase = "abcdefghijklmnopqrstuvwxyz"
+    $uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    $digits = "0123456789"
+    $allChars = $lowercase + $uppercase + $digits
+    $password = -join ((1..$length) | ForEach-Object { $allChars | Get-Random })
     return $password
 }
 
-# Создаём пользователей
-$UsersList = @()
-for ($i=1; $i -le $UserCount; $i++) {
-    $Username = "User$i"
-    $Password = Generate-Password
-    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+# Массив для хранения данных о пользователях
+$userCredentials = @()
 
-    # Создаём пользователя
-    New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User"
+# Создание пользователей
+for ($i = 1; $i -le $userCount; $i++) {
+    $username = "User$i"
+    $password = Generate-Password
+    New-LocalUser -Name $username -Password (ConvertTo-SecureString $password -AsPlainText -Force) -FullName "User $i" -Description "User created by script"
+    Add-LocalGroupMember -Group "Users" -Member $username
 
-    # Добавляем пользователя в группу RDP
-    Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username
-
-    # Запоминаем логины и пароли
-    $UsersList += "Логин: $Username | Пароль: $Password"
+    # Сохраняем данные в массив
+    $userCredentials += "$username : $password"
 }
 
-# Сохраняем в файл на рабочем столе
-$DesktopPath = [System.Environment]::GetFolderPath('Desktop')
-$FilePath = "$DesktopPath\RDP_Users.txt"
-$UsersList | Out-File -Encoding UTF8 -FilePath $FilePath
+# Сохранение списка логинов и паролей на рабочий стол
+$userCredentials | Out-File -FilePath "$env:USERPROFILE\Desktop\user_credentials.txt"
 
-Write-Host "Список пользователей сохранён в $FilePath"
-
-# Запрос на перезагрузку
-$Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
-if ($Confirm -eq "Y") {
-    Restart-Computer -Force
-} else {
-    Write-Host "Перезагрузка отменена"
-}
+# Перезагружаем сервер для применения всех изменений
+Restart-Computer -Force
