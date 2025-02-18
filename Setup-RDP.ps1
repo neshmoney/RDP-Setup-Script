@@ -26,6 +26,12 @@ Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/Activa
 # Запрос на количество пользователей
 $userCount = Read-Host "Введите количество пользователей для создания"
 
+# Проверим, что введено значение
+if (-not $userCount -match '^\d+$') {
+    Write-Host "Ошибка: введено некорректное количество пользователей."
+    exit
+}
+
 # Функция для генерации пароля
 function Generate-Password {
     $length = 10
