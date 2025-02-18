@@ -25,7 +25,6 @@ $UsersList = @()
 for ($i=1; $i -le $UserCount; $i++) {
     $Username = "User$i"
     $Password = Generate-Password
-    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
     # Проверяем, существует ли пользователь
     if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
@@ -34,21 +33,19 @@ for ($i=1; $i -le $UserCount; $i++) {
     }
 
     try {
-        # Создаём пользователя
-        New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
-
-        # Добавляем пользователя в группу RDP
-        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
+        # Создаём пользователя через net user
+        net user $Username $Password /add /y
+        net localgroup "Remote Desktop Users" $Username /add
 
         # Запоминаем логины и пароли
         $UsersList += "Логин: $Username | Пароль: $Password"
-        Write-Host "Пользователь $Username создан и добавлен в группу Remote Desktop Users"
+        Write-Host "✅ Пользователь $Username создан и добавлен в группу Remote Desktop Users"
     } catch {
-        Write-Host "Ошибка при создании пользователя $Username: $_" -ForegroundColor Red
+        Write-Host "❌ Ошибка при создании пользователя $Username: $_" -ForegroundColor Red
     }
 }
 
-# Сохраняем в файл на рабочем столе
+# Сохраняем список пользователей в файл на рабочем столе
 $DesktopPath = [System.Environment]::GetFolderPath('Desktop')
 $FilePath = "$DesktopPath\RDP_Users.txt"
 $UsersList | Out-File -FilePath $FilePath -Encoding utf8
@@ -71,14 +68,14 @@ Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Par
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
 
-# Запускаем службу RDP
+# Перезапускаем службу RDP
 Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
 Restart-Service -Name TermService -Force
 
-# Запрос на перезагрузку
+# Запрос на перезагрузку сервера
 $Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
 if ($Confirm -match '^(y|Y)$') {
-    Restart-Computer -Force
+    Restart-Computer -Force -Confirm:$false
 } else {
     Write-Host "⛔ Перезагрузка отменена"
 }
