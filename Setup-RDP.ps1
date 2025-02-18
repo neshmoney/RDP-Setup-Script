@@ -5,10 +5,6 @@ Start-Service -Name WinRM
 
 # Устанавливаем роли для RDS
 Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
-Restart-Computer -Force
-
-# Ждём загрузки системы перед продолжением
-Start-Sleep -Seconds 60
 
 # Настроим лицензирование через реестр
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
@@ -21,44 +17,49 @@ Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Termi
 $agreementNumbers = @("6565792", "5296992", "3325596", "4965437", "4526017")
 $selectedNumber = $agreementNumbers | Get-Random
 
+# Команды для автоматической активации лицензий
 Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/ActivateServer /CompanyName:Test /Country:AF /AgreementNumber:$selectedNumber /LicenseType:2 /LicenseCount:16 /ProductVersion:WindowsServer2022" -Wait
 
-# Запрос на количество пользователей
-$userCount = Read-Host "Введите количество пользователей для создания"
-
-# Проверим, что введено значение
-if (-not $userCount -match '^\d+$') {
-    Write-Host "Ошибка: введено некорректное количество пользователей."
-    exit
-}
-
-# Функция для генерации пароля
+# Функция генерации пароля
 function Generate-Password {
     $length = 10
-    $lowercase = "abcdefghijklmnopqrstuvwxyz"
-    $uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    $digits = "0123456789"
-    $allChars = $lowercase + $uppercase + $digits
-    $password = -join ((1..$length) | ForEach-Object { $allChars | Get-Random })
+    $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    $password = -join ((1..$length) | ForEach-Object { $characters | Get-Random })
     return $password
 }
 
-# Массив для хранения данных о пользователях
-$userCredentials = @()
+# Запрос количества пользователей
+$numberOfUsers = Read-Host "Введите количество создаваемых пользователей"
 
-# Создание пользователей
-for ($i = 1; $i -le $userCount; $i++) {
-    $username = "User$i"
-    $password = Generate-Password
-    New-LocalUser -Name $username -Password (ConvertTo-SecureString $password -AsPlainText -Force) -FullName "User $i" -Description "User created by script"
-    Add-LocalGroupMember -Group "Users" -Member $username
+# Проверяем, если пользователь ввел число
+if ($numberOfUsers -match '^\d+$') {
+    # Путь к рабочему столу
+    $desktopPath = [System.Environment]::GetFolderPath("Desktop")
+    $outputFile = "$desktopPath\user_credentials.txt"
 
-    # Сохраняем данные в массив
-    $userCredentials += "$username : $password"
+    # Создание файла и добавление данных
+    $output = @()
+
+    # Создание пользователей с генерацией паролей
+    for ($i = 1; $i -le $numberOfUsers; $i++) {
+        $username = "user$i"
+        $password = Generate-Password
+        Write-Host "Создан пользователь: $username с паролем: $password"
+        
+        # Запись в массив для последующего сохранения в файл
+        $output += "Пользователь: $username, Пароль: $password"
+        
+        # Добавьте команду для создания пользователя в системе, например:
+        # New-LocalUser -Name $username -Password (ConvertTo-SecureString -AsPlainText $password -Force)
+    }
+
+    # Сохранение данных в текстовый файл
+    $output | Out-File -FilePath $outputFile -Encoding UTF8
+
+    Write-Host "Файл с данными пользователей сохранён на рабочем столе: $outputFile"
+} else {
+    Write-Host "Введено некорректное значение. Пожалуйста, введите число."
 }
 
-# Сохранение списка логинов и паролей на рабочий стол с кодировкой UTF-8
-$userCredentials | Out-File -FilePath "$env:USERPROFILE\Desktop\user_credentials.txt" -Encoding UTF8
-
-# Перезагружаем сервер для применения всех изменений
+# Перезагружаем сервер для применения всех изменений в конце
 Restart-Computer -Force
