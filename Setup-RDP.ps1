@@ -10,7 +10,7 @@ Restart-Computer -Force
 # Ждём загрузки системы перед продолжением
 Start-Sleep -Seconds 60
 
-# Настроим лицензирование через реестр
+# Настраиваем лицензирование через реестр
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
 
@@ -86,3 +86,4 @@ if ($credentials.Count -gt 0) {
 } else {
     Write-Host "Ошибка! Пользователи не были созданы, файл не записан."
 }
+# Исправлена кодировка
