@@ -10,7 +10,7 @@ Restart-Computer -Force
 # Ждём загрузки системы перед продолжением
 Start-Sleep -Seconds 60
 
-# Настраиваем лицензирование через реестр
+# Настроим лицензирование через реестр
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
 
