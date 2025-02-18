@@ -87,3 +87,4 @@ $restartConfirmed = Read-Host "Скрипт завершен. Хотите пе�
 if ($restartConfirmed -eq 'Y') {
     Restart-Computer -Force
 }
+
