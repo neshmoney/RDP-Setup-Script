@@ -51,8 +51,8 @@ for ($i = 1; $i -le $userCount; $i++) {
     $userCredentials += "$username : $password"
 }
 
-# Сохранение списка логинов и паролей на рабочий стол
-$userCredentials | Out-File -FilePath "$env:USERPROFILE\Desktop\user_credentials.txt"
+# Сохранение списка логинов и паролей на рабочий стол с правильной кодировкой
+$userCredentials | Out-File -FilePath "$env:USERPROFILE\Desktop\user_credentials.txt" -Encoding UTF8
 
 # Перезагружаем сервер для применения всех изменений
 Restart-Computer -Force
