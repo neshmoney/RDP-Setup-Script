@@ -21,10 +21,22 @@ for ($i=1; $i -le $UserCount; $i++) {
     $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
     # Создаём пользователя
-    New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction SilentlyContinue
+    try {
+        New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
+        Write-Host "✅ Пользователь $Username успешно создан"
+    } catch {
+        Write-Host "❌ Ошибка при создании пользователя $Username"
+        continue
+    }
 
     # Добавляем пользователя в группу RDP
-    Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction SilentlyContinue
+    try {
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
+        Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
+    } catch {
+        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу"
+        continue
+    }
 
     # Запоминаем логины и пароли
     $UsersList += "Логин: $Username | Пароль: $Password"
@@ -53,9 +65,14 @@ Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Par
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
 
-# Запускаем службу RDP
+# Перезапускаем службу RDP
 Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
-Restart-Service -Name TermService -Force
+try {
+    Restart-Service -Name TermService -Force -ErrorAction Stop
+    Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
+} catch {
+    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола"
+}
 
 # Запрос на перезагрузку
 $Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
