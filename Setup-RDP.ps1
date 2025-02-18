@@ -1,58 +1,84 @@
-# Включаем службу Windows Remote Management (WinRM) для удаленных подключений
-try {
-    Enable-PSRemoting -Force
-    Set-Service -Name WinRM -StartupType Automatic
-    Start-Service -Name WinRM
-    Write-Host "WinRM настроен успешно."
-} catch {
-    Write-Host "Ошибка при настройке WinRM: $_"
+# Устанавливаем Execution Policy, если нужно
+Set-ExecutionPolicy Unrestricted -Force
+
+# Проверка на права администратора
+$IsAdmin = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if ($IsAdmin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -eq $false) {
+    Write-Host "Ошибка! Скрипт должен быть запущен с правами администратора." -ForegroundColor Red
+    exit
 }
 
-# Устанавливаем роли для удаленного рабочего стола
-try {
-    Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
-    Write-Host "Роли для удаленного рабочего стола установлены успешно."
-} catch {
-    Write-Host "Ошибка при установке ролей RDS: $_"
-}
-
-# Ждем завершения установки и системы
-Start-Sleep -Seconds 60
-
-# Настроим лицензирование через реестр
-try {
-    Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
-    Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
-    Write-Host "Лицензирование настроено."
-} catch {
-    Write-Host "Ошибка при настройке лицензирования: $_"
-}
-
-# Разрешаем множественные сессии под одной учетной записью
-try {
-    Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
-    Write-Host "Множественные сессии разрешены."
-} catch {
-    Write-Host "Ошибка при настройке множественных сессий: $_"
-}
-
-# Настройка блокировки количества подключений RDP
-try {
-    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "MaxInstanceCount" -Value 100
-    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-    Write-Host "Максимальное количество подключений настроено."
-} catch {
-    Write-Host "Ошибка при настройке RDP: $_"
-}
-
-# Функция генерации случайного пароля
-function Generate-Password {
-    param([int]$length = 12)
-    $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+'
-    return -join (1..$length | ForEach-Object { $characters[(Get-Random -Minimum 0 -Maximum $characters.Length)] })
-}
-
-# Запрос количества пользователей с проверкой правильности ввода
+# Запрашиваем количество пользователей (проверка на ввод чисел)
 do {
-    $numberOfUsers = Read-Host "Введите количество создаваемых пользователей (число от 1 до 100)"
-} while (-not ($numberOfUsers -match '^\d+$') -or [in
+    $UserCount = Read-Host "Введите количество пользователей для создания"
+} while ($UserCount -match '\D' -or [int]$UserCount -le 0)
+
+# Функция генерации случайного пароля (10 символов: буквы разного регистра + цифры)
+function Generate-Password {
+    $length = 10
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
+}
+
+# Создаём пользователей
+$UsersList = @()
+for ($i=1; $i -le $UserCount; $i++) {
+    $Username = "User$i"
+    $Password = Generate-Password
+    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+
+    # Проверяем, существует ли пользователь
+    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+        Write-Host "Пользователь $Username уже существует, пропускаем..."
+        continue
+    }
+
+    try {
+        # Создаём пользователя
+        New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
+
+        # Добавляем пользователя в группу RDP
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
+
+        # Запоминаем логины и пароли
+        $UsersList += "Логин: $Username | Пароль: $Password"
+        Write-Host "Пользователь $Username создан и добавлен в группу Remote Desktop Users"
+    } catch {
+        Write-Host "Ошибка при создании пользователя $Username: $_" -ForegroundColor Red
+    }
+}
+
+# Сохраняем в файл на рабочем столе
+$DesktopPath = [System.Environment]::GetFolderPath('Desktop')
+$FilePath = "$DesktopPath\RDP_Users.txt"
+$UsersList | Out-File -FilePath $FilePath -Encoding utf8
+
+Write-Host "✅ Список пользователей сохранён в $FilePath"
+
+# Разрешаем несколько одновременных RDP-сессий
+Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\TermService" -Name "Start" -Value 2
+
+# Увеличиваем число разрешённых сессий
+Write-Host "🔹 Увеличиваем число разрешённых одновременных подключений..."
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxWorkItems" -Value 8192
+
+# Отключаем ограничение по времени неактивных сессий
+Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
+
+# Запускаем службу RDP
+Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
+Restart-Service -Name TermService -Force
+
+# Запрос на перезагрузку
+$Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
+if ($Confirm -match '^(y|Y)$') {
+    Restart-Computer -Force
+} else {
+    Write-Host "⛔ Перезагрузка отменена"
+}
