@@ -3,17 +3,17 @@ try {
     Enable-PSRemoting -Force
     Set-Service -Name WinRM -StartupType Automatic
     Start-Service -Name WinRM
-    Write-Output "WinRM настроен успешно."
+    Write-Host "WinRM настроен успешно."
 } catch {
-    Write-Error "Ошибка при настройке WinRM: $_"
+    Write-Host "Ошибка при настройке WinRM: $_"
 }
 
 # Устанавливаем роли для удаленного рабочего стола
 try {
     Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
-    Write-Output "Роли для удаленного рабочего стола установлены успешно."
+    Write-Host "Роли для удаленного рабочего стола установлены успешно."
 } catch {
-    Write-Error "Ошибка при установке ролей RDS: $_"
+    Write-Host "Ошибка при установке ролей RDS: $_"
 }
 
 # Ждем завершения установки и системы
@@ -23,33 +23,33 @@ Start-Sleep -Seconds 60
 try {
     Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
     Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
-    Write-Output "Лицензирование настроено."
+    Write-Host "Лицензирование настроено."
 } catch {
-    Write-Error "Ошибка при настройке лицензирования: $_"
+    Write-Host "Ошибка при настройке лицензирования: $_"
 }
 
 # Разрешаем множественные сессии под одной учетной записью
 try {
     Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
-    Write-Output "Множественные сессии разрешены."
+    Write-Host "Множественные сессии разрешены."
 } catch {
-    Write-Error "Ошибка при настройке множественных сессий: $_"
+    Write-Host "Ошибка при настройке множественных сессий: $_"
 }
 
 # Настройка блокировки количества подключений RDP
 try {
     Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "MaxInstanceCount" -Value 100
     Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-    Write-Output "Максимальное количество подключений настроено."
+    Write-Host "Максимальное количество подключений настроено."
 } catch {
-    Write-Error "Ошибка при настройке RDP: $_"
+    Write-Host "Ошибка при настройке RDP: $_"
 }
 
 # Функция генерации случайного пароля
 function Generate-Password {
     param([int]$length = 12)
     $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+'
-    -join (1..$length | ForEach-Object { $characters[(Get-Random -Minimum 0 -Maximum $characters.Length)] })
+    return -join (1..$length | ForEach-Object { $characters[(Get-Random -Minimum 0 -Maximum $characters.Length)] })
 }
 
 # Запрос количества пользователей с проверкой правильности ввода
@@ -99,9 +99,9 @@ for ($i = 1; $i -le $numberOfUsers; $i++) {
 # Записываем учетные данные в файл
 if ($credentials.Count -gt 0) {
     $credentials | Out-File -FilePath $outputFile -Encoding UTF8
-    Write-Output "Файл с учетными данными сохранен: $outputFile"
+    Write-Host "Файл с учетными данными сохранен: $outputFile"
 } else {
-    Write-Error "Ошибка! Пользователи не были созданы, файл не записан."
+    Write-Host "Ошибка! Пользователи не были созданы, файл не записан."
 }
 
 # Подтверждение перезагрузки
@@ -110,6 +110,6 @@ if ($restartConfirmed -eq 'Y') {
     try {
         Restart-Computer -Force
     } catch {
-        Write-Error "Ошибка при перезагрузке компьютера: $_"
+        Write-Host "Ошибка при перезагрузке компьютера: $_"
     }
 }
