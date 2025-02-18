@@ -6,7 +6,7 @@ Start-Service -Name WinRM
 # Устанавливаем роли для RDS
 Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
 
-# Ждём загрузки системы перед продолжением
+# Ждем завершения установки и системы
 Start-Sleep -Seconds 60
 
 # Настроим лицензирование через реестр
@@ -16,14 +16,18 @@ Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Se
 # Разрешаем множественные сессии под одной учетной записью
 Set-ItemProperty -Path "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
 
-# Автоматически активируем сервер лицензий
+# Автоматически активируем сервер лицензий (проверка наличия lserver.exe)
 $agreementNumbers = @("6565792", "5296992", "3325596", "4965437", "4526017")
 $selectedNumber = $agreementNumbers | Get-Random
 
-# Команда для активации лицензий
-Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/ActivateServer /CompanyName:Test /Country:AF /AgreementNumber:$selectedNumber /LicenseType:2 /LicenseCount:16 /ProductVersion:WindowsServer2022" -Wait
+if (Test-Path "C:\Windows\System32\lserver.exe") {
+    # Команда для активации лицензий
+    Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/ActivateServer /CompanyName:Test /Country:AF /AgreementNumber:$selectedNumber /LicenseType:2 /LicenseCount:16 /ProductVersion:WindowsServer2022" -Wait
+} else {
+    Write-Host "Файл lserver.exe не найден. Пропуск активации лицензий."
+}
 
-# Ждём загрузки системы перед созданием пользователей
+# Ждем завершения работы системы
 Start-Sleep -Seconds 60
 
 # Функция генерации случайного пароля (12 символов)
@@ -62,9 +66,9 @@ for ($i = 1; $i -le $numberOfUsers; $i++) {
         }
 
         # Создаем нового пользователя
-        New-LocalUser -Name $username -Password $securePassword -FullName "User $i" -Description "Автоматически созданный пользователь" -ErrorAction Stop
-        Add-LocalGroupMember -Group "Users" -Member $username -ErrorAction Stop
-        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction Stop
+        New-LocalUser -Name $username -Password $securePassword -FullName "User $i" -Description "Автоматически созданный пользователь" -ErrorAction Continue
+        Add-LocalGroupMember -Group "Users" -Member $username -ErrorAction Continue
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username -ErrorAction Continue
 
         # Добавляем логин и пароль в массив
         $credentials += "Логин: $username, Пароль: $password"
