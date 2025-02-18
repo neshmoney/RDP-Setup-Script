@@ -5,12 +5,11 @@ Start-Service -Name WinRM
 
 # Устанавливаем роли для RDS
 Install-WindowsFeature RDS-RD-Server, RDS-Licensing -IncludeManagementTools
-Restart-Computer -Force
 
 # Ждём загрузки системы перед продолжением
 Start-Sleep -Seconds 60
 
-# Настраиваем лицензирование через реестр
+# Настроим лицензирование через реестр
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "LicensingMode" -Value 2
 Set-ItemProperty -Path "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services" -Name "SpecifiedLicenseServerList" -Value "127.0.0.1"
 
@@ -23,9 +22,6 @@ $selectedNumber = $agreementNumbers | Get-Random
 
 # Команда для активации лицензий
 Start-Process -FilePath "C:\Windows\System32\lserver.exe" -ArgumentList "/ActivateServer /CompanyName:Test /Country:AF /AgreementNumber:$selectedNumber /LicenseType:2 /LicenseCount:16 /ProductVersion:WindowsServer2022" -Wait
-
-# Перезагружаем сервер для применения всех изменений
-Restart-Computer -Force
 
 # Ждём загрузки системы перед созданием пользователей
 Start-Sleep -Seconds 60
@@ -86,4 +82,9 @@ if ($credentials.Count -gt 0) {
 } else {
     Write-Host "Ошибка! Пользователи не были созданы, файл не записан."
 }
-# Исправлена кодировка
+
+# Запрашиваем подтверждение перезагрузки
+$restartConfirmed = Read-Host "Скрипт завершен. Хотите перезагрузить сервер? (Y/N)"
+if ($restartConfirmed -eq 'Y') {
+    Restart-Computer -Force
+}
