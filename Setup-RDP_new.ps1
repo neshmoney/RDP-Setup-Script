@@ -17,6 +17,13 @@ function Generate-Password {
 $UsersList = @()
 for ($i=1; $i -le $UserCount; $i++) {
     $Username = "User$i"
+    
+    # Проверяем, существует ли уже пользователь
+    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+        Write-Host "❌ Пользователь $Username уже существует, пропускаем."
+        continue
+    }
+
     $Password = Generate-Password
     $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
@@ -45,17 +52,20 @@ for ($i=1; $i -le $UserCount; $i++) {
 # Сохраняем в файл на рабочем столе
 $DesktopPath = [System.Environment]::GetFolderPath('Desktop')
 $FilePath = "$DesktopPath\RDP_Users.txt"
-$UsersList | Out-File -FilePath $FilePath -Encoding utf8
+$UsersList | Out-File -FilePath $FilePath -Encoding UTF8
 
 Write-Host "✅ Список пользователей сохранён в $FilePath"
 
 # Разрешаем несколько одновременных RDP-сессий
 Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
+# Убираем шаг с Licensing Core, если не существует:
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
+}
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\TermService" -Name "Start" -Value 2
 
-# Увеличиваем число разрешённых сессий
+# Увеличиваем число разрешённых одновременных подключений
 Write-Host "🔹 Увеличиваем число разрешённых одновременных подключений..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
@@ -65,13 +75,18 @@ Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Par
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
 
-# Перезапускаем службу RDP
-Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
-try {
-    Restart-Service -Name TermService -Force -ErrorAction Stop
-    Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
-} catch {
-    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола"
+# Запрос на перезапуск службы RDP
+$ConfirmServiceRestart = Read-Host "Хотите перезапустить службу удалённого рабочего стола? (Y/N)"
+if ($ConfirmServiceRestart -match '^(y|Y)$') {
+    Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
+    try {
+        Restart-Service -Name TermService -Force -ErrorAction Stop
+        Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
+    } catch {
+        Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола"
+    }
+} else {
+    Write-Host "⛔ Перезапуск службы отменён"
 }
 
 # Запрос на перезагрузку
