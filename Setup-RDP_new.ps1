@@ -27,7 +27,7 @@ for ($i = 1; $i -le $UserCount; $i++) {
         New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
         Write-Host "✅ Пользователь $Username успешно создан"
     } catch {
-        Write-Host "❌ Ошибка при создании пользователя $Username: $($_)"
+        Write-Host "❌ Ошибка при создании пользователя $Username: $($Error[0].Exception.Message)"
         continue
     }
 
@@ -36,7 +36,7 @@ for ($i = 1; $i -le $UserCount; $i++) {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
         Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
     } catch {
-        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $($_)"
+        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $($Error[0].Exception.Message)"
         continue
     }
 
@@ -73,7 +73,7 @@ try {
     Restart-Service -Name TermService -Force -ErrorAction Stop
     Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
 } catch {
-    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $($_)"
+    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $($Error[0].Exception.Message)"
 }
 
 # Запрос на перезагрузку
