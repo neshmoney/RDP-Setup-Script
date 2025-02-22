@@ -6,10 +6,10 @@ do {
     $UserCount = Read-Host "Введите количество пользователей для создания"
 } while ($UserCount -match '\D' -or [int]$UserCount -le 0)
 
-# Функция генерации случайного пароля (12 символов: буквы, цифры и спецсимволы)
+# Функция генерации случайного пароля (10 символов: буквы разного регистра + цифры)
 function Generate-Password {
-    $length = 12
-    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+[]{}|;:,.<>?"
+    $length = 10
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
 }
 
@@ -20,27 +20,21 @@ for ($i=1; $i -le $UserCount; $i++) {
     $Password = Generate-Password
     $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
-    # Проверка на существование пользователя
-    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
-        Write-Host "❌ Пользователь с именем $Username уже существует. Пропускаем."
-        continue
-    }
-
     # Создаём пользователя
     try {
         New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
-        Write-Host "✅ Пользователь $Username успешно создан"
+        Write-Host "✅ Пользователь ${Username} успешно создан"
     } catch {
-        Write-Host "❌ Ошибка при создании пользователя $Username: $_"
+        Write-Host "❌ Ошибка при создании пользователя ${Username}: $_"
         continue
     }
 
     # Добавляем пользователя в группу RDP
     try {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
-        Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
+        Write-Host "✅ Пользователь ${Username} добавлен в группу Remote Desktop Users"
     } catch {
-        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $_"
+        Write-Host "❌ Ошибка при добавлении пользователя ${Username} в группу: $_"
         continue
     }
 
@@ -74,6 +68,14 @@ if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStation
     Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
 }
 
+if (Test-Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxWorkItems" -Value 8192
+    Write-Host "✅ Максимальные значения для подключений и работы сервера увеличены."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters' не найден!"
+}
+
 # Отключаем ограничение по времени неактивных сессий
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp") {
@@ -83,17 +85,13 @@ if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStation
     Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
 }
 
-# Перезапуск службы RDP
-$ConfirmServiceRestart = Read-Host "Хотите перезапустить службу RDP? (Y/N)"
-if ($ConfirmServiceRestart -match '^(y|Y)$') {
-    try {
-        Restart-Service -Name TermService -Force -ErrorAction Stop
-        Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
-    } catch {
-        Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $_"
-    }
-} else {
-    Write-Host "⛔ Перезапуск службы отменён"
+# Перезапускаем службу RDP
+Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
+try {
+    Restart-Service -Name TermService -Force -ErrorAction Stop
+    Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
+} catch {
+    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $_"
 }
 
 # Запрос на перезагрузку
