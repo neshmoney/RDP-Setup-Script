@@ -86,3 +86,4 @@ if ($Confirm -match '^(y|Y)$') {
 } else {
     Write-Host "Перезагрузка отменена"
 }
+
