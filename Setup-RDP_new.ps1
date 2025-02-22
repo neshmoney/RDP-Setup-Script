@@ -15,6 +15,9 @@ function Generate-Password {
     return -join (Get-Random -Count $length -InputObject $Chars.ToCharArray())
 }
 
+# Массив для хранения пользователей и их паролей
+$UsersList = @()
+
 # Создание пользователей
 for ($i = 1; $i -le $UserCount; $i++) {
     $Username = "User$i"
@@ -28,20 +31,20 @@ for ($i = 1; $i -le $UserCount; $i++) {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
 
         Write-Host "✅ Пользователь $Username создан."
+
+        # Добавление пользователя и пароля в список
+        $UsersList += "$Username : $Password"
+
     }
     catch {
         Write-Host "❌ Ошибка при создании пользователя $Username. $_"
     }
 }
 
-# Сохранение списка пользователей на рабочий стол
+# Сохранение списка пользователей и паролей на рабочий стол
 $UsersFile = "$env:USERPROFILE\Desktop\RDP_Users.txt"
-$UsersList = @()
-for ($i = 1; $i -le $UserCount; $i++) {
-    $UsersList += "User$i"
-}
 $UsersList | Out-File -Encoding UTF8 -FilePath $UsersFile
-Write-Host "✅ Список пользователей сохранён в $UsersFile"
+Write-Host "✅ Список пользователей и паролей сохранён в $UsersFile"
 
 # Настройка реестра для RDP
 $RdpRegPath = "HKLM:\System\CurrentControlSet\Control\Terminal Server"
