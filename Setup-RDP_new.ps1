@@ -1,16 +1,32 @@
-# Устанавливаем Execution Policy, если нужно
-Set-ExecutionPolicy Unrestricted -Force
+# Устанавливаем Execution Policy на RemoteSigned
+Set-ExecutionPolicy RemoteSigned -Force
+
+# Проверяем права администратора
+if (-not (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit")) {
+    Write-Host "❌ Скрипт должен быть запущен от имени администратора!"
+    exit
+}
 
 # Запрашиваем количество пользователей (проверка на ввод чисел)
 do {
     $UserCount = Read-Host "Введите количество пользователей для создания"
+    if ($UserCount -match '\D' -or [int]$UserCount -le 0) {
+        Write-Host "❌ Ошибка: введите корректное положительное число."
+    }
 } while ($UserCount -match '\D' -or [int]$UserCount -le 0)
 
-# Функция генерации случайного пароля (10 символов: буквы разного регистра + цифры)
+# Функция генерации случайного пароля (12 символов: буквы разного регистра + цифры)
 function Generate-Password {
-    $length = 10
-    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    return -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
+    $length = 12
+    return [System.Web.Security.Membership]::GeneratePassword($length, 4)  # Генерация более сложных паролей
+}
+
+# Логирование ошибок
+function Log-Error {
+    param([string]$ErrorMessage)
+    $logFile = "C:\RDP_Error_Log.txt"
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    "$timestamp - $ErrorMessage" | Out-File -Append -FilePath $logFile
 }
 
 # Создаём пользователей
@@ -18,9 +34,9 @@ $UsersList = @()
 for ($i=1; $i -le $UserCount; $i++) {
     $Username = "User$i"
     
-    # Проверяем, существует ли уже пользователь
+    # Проверка, существует ли пользователь
     if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
-        Write-Host "❌ Пользователь $Username уже существует, пропускаем."
+        Write-Host "⚠️ Пользователь $Username уже существует, пропускаем..."
         continue
     }
 
@@ -33,6 +49,7 @@ for ($i=1; $i -le $UserCount; $i++) {
         Write-Host "✅ Пользователь $Username успешно создан"
     } catch {
         Write-Host "❌ Ошибка при создании пользователя $Username"
+        Log-Error "Ошибка при создании пользователя $Username"
         continue
     }
 
@@ -42,6 +59,7 @@ for ($i=1; $i -le $UserCount; $i++) {
         Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
     } catch {
         Write-Host "❌ Ошибка при добавлении пользователя $Username в группу"
+        Log-Error "Ошибка при добавлении $Username в группу Remote Desktop Users"
         continue
     }
 
@@ -52,17 +70,14 @@ for ($i=1; $i -le $UserCount; $i++) {
 # Сохраняем в файл на рабочем столе
 $DesktopPath = [System.Environment]::GetFolderPath('Desktop')
 $FilePath = "$DesktopPath\RDP_Users.txt"
-$UsersList | Out-File -FilePath $FilePath -Encoding UTF8
+$UsersList | Out-File -FilePath $FilePath -Encoding utf8
 
 Write-Host "✅ Список пользователей сохранён в $FilePath"
 
 # Разрешаем несколько одновременных RDP-сессий
 Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
-# Убираем шаг с Licensing Core, если не существует:
-if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core") {
-    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
-}
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\TermService" -Name "Start" -Value 2
 
 # Увеличиваем число разрешённых одновременных подключений
@@ -75,24 +90,31 @@ Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Par
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
 
-# Запрос на перезапуск службы RDP
-$ConfirmServiceRestart = Read-Host "Хотите перезапустить службу удалённого рабочего стола? (Y/N)"
-if ($ConfirmServiceRestart -match '^(y|Y)$') {
-    Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
+# Проверка и перезапуск службы RDP
+$serviceStatus = (Get-Service -Name TermService).Status
+if ($serviceStatus -ne 'Running') {
+    Write-Host "🔹 Служба не запущена, пытаемся перезапустить..."
     try {
-        Restart-Service -Name TermService -Force -ErrorAction Stop
+        Restart-Service -Name TermService -Force
         Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
     } catch {
         Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола"
+        Log-Error "Ошибка при перезапуске службы TermService"
     }
 } else {
-    Write-Host "⛔ Перезапуск службы отменён"
+    Write-Host "🔹 Служба уже работает, перезапуск не требуется."
 }
 
-# Запрос на перезагрузку
+# Запрос на перезагрузку сервера
 $Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
 if ($Confirm -match '^(y|Y)$') {
-    Restart-Computer -Force
+    Write-Host "🔹 Перезагружаем сервер..."
+    try {
+        Restart-Computer -Force
+    } catch {
+        Write-Host "❌ Ошибка при перезагрузке сервера"
+        Log-Error "Ошибка при перезагрузке сервера"
+    }
 } else {
     Write-Host "⛔ Перезагрузка отменена"
 }
