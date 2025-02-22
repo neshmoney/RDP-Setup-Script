@@ -25,7 +25,7 @@ for ($i=1; $i -le $UserCount; $i++) {
         New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
         Write-Host "✅ Пользователь $Username успешно создан"
     } catch {
-        Write-Host "❌ Ошибка при создании пользователя $Username"
+        Write-Host "❌ Ошибка при создании пользователя $Username: $_"
         continue
     }
 
@@ -34,7 +34,7 @@ for ($i=1; $i -le $UserCount; $i++) {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
         Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
     } catch {
-        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу"
+        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $_"
         continue
     }
 
@@ -51,19 +51,39 @@ Write-Host "✅ Список пользователей сохранён в $Fil
 
 # Разрешаем несколько одновременных RDP-сессий
 Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\TermService" -Name "Start" -Value 2
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
+    Write-Host "✅ Разрешено несколько одновременных RDP-сессий."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server' не найден!"
+}
 
 # Увеличиваем число разрешённых сессий
 Write-Host "🔹 Увеличиваем число разрешённых одновременных подключений..."
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxWorkItems" -Value 8192
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
+    Write-Host "✅ Число разрешённых одновременных подключений увеличено."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
+}
+
+if (Test-Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxWorkItems" -Value 8192
+    Write-Host "✅ Максимальные значения для подключений и работы сервера увеличены."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters' не найден!"
+}
 
 # Отключаем ограничение по времени неактивных сессий
 Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
-Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
+    Write-Host "✅ Ограничение по времени неактивных сессий отключено."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
+}
 
 # Перезапускаем службу RDP
 Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
@@ -71,7 +91,7 @@ try {
     Restart-Service -Name TermService -Force -ErrorAction Stop
     Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
 } catch {
-    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола"
+    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $_"
 }
 
 # Запрос на перезагрузку
