@@ -1,49 +1,42 @@
-# Устанавливаем Execution Policy только для текущего процесса (временное изменение)
-Set-ExecutionPolicy RemoteSigned -Scope Process -Force
-
-# Принудительное использование UTF-8 (для Windows PowerShell 5.1)
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# Устанавливаем Execution Policy, если нужно
+Set-ExecutionPolicy Unrestricted -Force
 
 # Запрашиваем количество пользователей (проверка на ввод чисел)
 do {
     $UserCount = Read-Host "Введите количество пользователей для создания"
-} until ($UserCount -match '^\d+$' -and [int]$UserCount -gt 0)
+} while (-not $UserCount -match '^\d+$' -or [int]$UserCount -le 0)
 
-# Функция генерации случайного пароля (10 символов: буквы разного регистра + цифры)
+# Функция генерации случайного пароля (по умолчанию 10 символов)
 function Generate-Password {
-    $length = 10
+    param (
+        [int]$length = 10
+    )
     $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     return -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
 }
 
 # Создаём пользователей
 $UsersList = @()
-for ($i=1; $i -le $UserCount; $i++) {
+for ($i = 1; $i -le $UserCount; $i++) {
     $Username = "User$i"
-    
-    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
-        Write-Host "Пользователь $Username уже существует! Пропускаем..." -ForegroundColor Yellow
-        continue
-    }
-
     $Password = Generate-Password
     $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
     # Создаём пользователя
     try {
         New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
-        Write-Host "Пользователь $Username успешно создан" -ForegroundColor Green
+        Write-Host "✅ Пользователь $Username успешно создан"
     } catch {
-        Write-Host "Ошибка при создании пользователя $Username: $_" -ForegroundColor Red
+        Write-Host "❌ Ошибка при создании пользователя $Username: $_"
         continue
     }
 
     # Добавляем пользователя в группу RDP
     try {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
-        Write-Host "Пользователь $Username добавлен в группу Remote Desktop Users" -ForegroundColor Green
+        Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
     } catch {
-        Write-Host "Ошибка при добавлении пользователя $Username в группу: $_" -ForegroundColor Red
+        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $_"
         continue
     }
 
@@ -51,39 +44,36 @@ for ($i=1; $i -le $UserCount; $i++) {
     $UsersList += "Логин: $Username | Пароль: $Password"
 }
 
-# Сохраняем список пользователей в файл на рабочем столе (открытый и зашифрованный варианты)
+# Сохраняем в файл на рабочем столе
 $DesktopPath = [System.Environment]::GetFolderPath('Desktop')
 $FilePath = "$DesktopPath\RDP_Users.txt"
-$UsersList | Out-File -FilePath $FilePath -Encoding UTF8
+$UsersList | Out-File -FilePath $FilePath -Encoding utf8
 
-# Шифрованный файл (по желанию, можно закомментировать)
-$EncryptedFilePath = "$DesktopPath\RDP_Users_Encrypted.txt"
-$UsersList | ConvertTo-SecureString -AsPlainText -Force | ConvertFrom-SecureString | Out-File -FilePath $EncryptedFilePath
-Write-Host "Список пользователей сохранён в $FilePath (обычный текст) и $EncryptedFilePath (зашифрованный формат)" -ForegroundColor Cyan
+Write-Host "✅ Список пользователей сохранён в $FilePath"
 
 # Разрешаем несколько одновременных RDP-сессий
-Write-Host "Снимаем ограничение на количество RDP-подключений..."
+Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\TermService" -Name "Start" -Value 2
 
 # Увеличиваем число разрешённых сессий
-Write-Host "Увеличиваем число разрешённых одновременных подключений..."
+Write-Host "🔹 Увеличиваем число разрешённых одновременных подключений..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxMpxCt" -Value 65535
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "MaxWorkItems" -Value 8192
 
 # Отключаем ограничение по времени неактивных сессий
-Write-Host "Отключаем ограничение по времени неактивных RDP-сессий..."
+Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
 Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
 
 # Перезапускаем службу RDP
-Write-Host "Перезапускаем службу удалённого рабочего стола..."
+Write-Host "🔹 Перезапускаем службу удалённого рабочего стола..."
 try {
     Restart-Service -Name TermService -Force -ErrorAction Stop
-    Write-Host "Служба удалённого рабочего стола успешно перезапущена" -ForegroundColor Green
+    Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
 } catch {
-    Write-Host "Ошибка при перезапуске службы удалённого рабочего стола: $_" -ForegroundColor Red
+    Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $_"
 }
 
 # Запрос на перезагрузку
@@ -91,5 +81,5 @@ $Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N
 if ($Confirm -match '^(y|Y)$') {
     Restart-Computer -Force
 } else {
-    Write-Host "Перезагрузка отменена" -ForegroundColor Yellow
+    Write-Host "⛔ Перезагрузка отменена"
 }
