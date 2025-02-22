@@ -1,113 +1,105 @@
-# Проверка, запущен ли скрипт от имени администратора
-$CurrentUser = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-if (-not $CurrentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "⛔ Скрипт необходимо запустить от имени администратора!" -ForegroundColor Red
-    Exit
-}
+# Устанавливаем Execution Policy, если нужно
+Set-ExecutionPolicy Unrestricted -Force
 
-# Запрос количества пользователей
-$UserCount = Read-Host "Введите количество пользователей для создания"
+# Запрашиваем количество пользователей (проверка на ввод чисел)
+do {
+    $UserCount = Read-Host "Введите количество пользователей для создания"
+} while ($UserCount -match '\D' -or [int]$UserCount -le 0)
 
-# Функция генерации пароля
+# Функция генерации случайного пароля (12 символов: буквы, цифры и спецсимволы)
 function Generate-Password {
-    param ([int]$length = 12)
-    $Chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()'
-    return -join (Get-Random -Count $length -InputObject $Chars.ToCharArray())
+    $length = 12
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+[]{}|;:,.<>?"
+    return -join ((1..$length) | ForEach-Object { Get-Random -InputObject $chars.ToCharArray() })
 }
 
-# Массив для хранения пользователей и их паролей
+# Создаём пользователей
 $UsersList = @()
-
-# Создание пользователей
-for ($i = 1; $i -le $UserCount; $i++) {
+for ($i=1; $i -le $UserCount; $i++) {
     $Username = "User$i"
     $Password = Generate-Password
+    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 
+    # Проверка на существование пользователя
+    if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+        Write-Host "❌ Пользователь с именем $Username уже существует. Пропускаем."
+        continue
+    }
+
+    # Создаём пользователя
     try {
-        # Создание пользователя
-        New-LocalUser -Name $Username -Password (ConvertTo-SecureString -String $Password -AsPlainText -Force) -FullName $Username -Description "RDP User" -ErrorAction Stop
+        New-LocalUser -Name $Username -Password $SecurePassword -FullName "User $i" -Description "RDP User" -ErrorAction Stop
+        Write-Host "✅ Пользователь $Username успешно создан"
+    } catch {
+        Write-Host "❌ Ошибка при создании пользователя $Username: $_"
+        continue
+    }
 
-        # Добавление пользователя в группу "Remote Desktop Users"
+    # Добавляем пользователя в группу RDP
+    try {
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member $Username -ErrorAction Stop
-
-        Write-Host "✅ Пользователь $Username создан."
-
-        # Добавление пользователя и пароля в список
-        $UsersList += "$Username : $Password"
-
+        Write-Host "✅ Пользователь $Username добавлен в группу Remote Desktop Users"
+    } catch {
+        Write-Host "❌ Ошибка при добавлении пользователя $Username в группу: $_"
+        continue
     }
-    catch {
-        Write-Host "❌ Ошибка при создании пользователя $Username. $_"
-    }
+
+    # Запоминаем логины и пароли
+    $UsersList += "Логин: $Username | Пароль: $Password"
 }
 
-# Сохранение списка пользователей и паролей на рабочий стол
-$UsersFile = "$env:USERPROFILE\Desktop\RDP_Users.txt"
-$UsersList | Out-File -Encoding UTF8 -FilePath $UsersFile
-Write-Host "✅ Список пользователей и паролей сохранён в $UsersFile"
+# Сохраняем в файл на рабочем столе
+$DesktopPath = [System.Environment]::GetFolderPath('Desktop')
+$FilePath = "$DesktopPath\RDP_Users.txt"
+$UsersList | Out-File -FilePath $FilePath -Encoding utf8
 
-# Настройка реестра для RDP
-$RdpRegPath = "HKLM:\System\CurrentControlSet\Control\Terminal Server"
-$LicensingRegPath = "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core"
+Write-Host "✅ Список пользователей сохранён в $FilePath"
 
-# Проверка существования путей реестра перед изменением
-if (Test-Path $RdpRegPath) {
-    Set-ItemProperty -Path $RdpRegPath -Name "fDenyTSConnections" -Value 0
-    Write-Host "🔹 Разрешены RDP-подключения."
+# Разрешаем несколько одновременных RDP-сессий
+Write-Host "🔹 Снимаем ограничение на количество RDP-подключений..."
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fSingleSessionPerUser" -Value 0
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\Licensing Core" -Name "EnableConcurrentSessions" -Value 1
+    Write-Host "✅ Разрешено несколько одновременных RDP-сессий."
 } else {
-    Write-Host "⚠ Путь $RdpRegPath не найден!"
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server' не найден!"
 }
 
-if (Test-Path $LicensingRegPath) {
-    Set-ItemProperty -Path $LicensingRegPath -Name "EnableConcurrentSessions" -Value 1
-    Write-Host "🔹 Снято ограничение на число одновременных RDP-подключений."
+# Увеличиваем число разрешённых сессий
+Write-Host "🔹 Увеличиваем число разрешённых одновременных подключений..."
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxInstanceCount" -Value 999999
+    Write-Host "✅ Число разрешённых одновременных подключений увеличено."
 } else {
-    Write-Host "⚠ Путь $LicensingRegPath не найден!"
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
 }
 
-# Отключение проверки терминальных лицензий
-$GracePeriodPath = "HKLM:\System\CurrentControlSet\Control\Terminal Server\RCM\GracePeriod"
+# Отключаем ограничение по времени неактивных сессий
+Write-Host "🔹 Отключаем ограничение по времени неактивных RDP-сессий..."
+if (Test-Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp") {
+    Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "MaxIdleTime" -Value 0
+    Write-Host "✅ Ограничение по времени неактивных сессий отключено."
+} else {
+    Write-Host "⚠ Путь 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' не найден!"
+}
 
-if (Test-Path $GracePeriodPath) {
+# Перезапуск службы RDP
+$ConfirmServiceRestart = Read-Host "Хотите перезапустить службу RDP? (Y/N)"
+if ($ConfirmServiceRestart -match '^(y|Y)$') {
     try {
-        Remove-Item -Path "$GracePeriodPath\*" -Force -ErrorAction Stop
-        Write-Host "✅ Удалён ключ GracePeriod для обхода проверки лицензий RDS." -ForegroundColor Green
-    }
-    catch {
-        Write-Host "⚠ Ошибка при удалении GracePeriod: $_" -ForegroundColor Yellow
+        Restart-Service -Name TermService -Force -ErrorAction Stop
+        Write-Host "✅ Служба удалённого рабочего стола успешно перезапущена"
+    } catch {
+        Write-Host "❌ Ошибка при перезапуске службы удалённого рабочего стола: $_"
     }
 } else {
-    Write-Host "⚠ Путь $GracePeriodPath не найден!" -ForegroundColor Yellow
+    Write-Host "⛔ Перезапуск службы отменён"
 }
-
-# Отключение проверки лицензий в реестре
-$RdsPoliciesPath = "HKLM:\Software\Policies\Microsoft\Windows NT\Terminal Services"
-
-if (-not (Test-Path $RdsPoliciesPath)) {
-    New-Item -Path $RdsPoliciesPath -Force | Out-Null
-}
-
-Set-ItemProperty -Path $RdsPoliciesPath -Name "LicenseServers" -Value ""
-Set-ItemProperty -Path $RdsPoliciesPath -Name "EnableConcurrentSessions" -Value 1
-Set-ItemProperty -Path $RdsPoliciesPath -Name "AllowMultipleTSSessions" -Value 1
-Write-Host "🔹 Настроены параметры обхода лицензий RDS." -ForegroundColor Cyan
-
-# Отключение NLA (по необходимости)
-$NlaRegPath = "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
-
-if (Test-Path $NlaRegPath) {
-    Set-ItemProperty -Path $NlaRegPath -Name "UserAuthentication" -Value 0
-    Write-Host "🔹 Отключена проверка NLA (Network Level Authentication)." -ForegroundColor Cyan
-} else {
-    Write-Host "⚠ Путь $NlaRegPath не найден!" -ForegroundColor Yellow
-}
-
-Write-Host "🔹 Полная настройка RDP завершена." -ForegroundColor Cyan
 
 # Запрос на перезагрузку
-$Restart = Read-Host "Хотите перезагрузить сервер? (Y/N)"
-if ($Restart -eq "Y") {
+$Confirm = Read-Host "Хотите перезагрузить сервер? (Y/N)"
+if ($Confirm -match '^(y|Y)$') {
     Restart-Computer -Force
 } else {
-    Write-Host "⛔ Перезагрузка отменена." -ForegroundColor Red
+    Write-Host "⛔ Перезагрузка отменена"
 }
